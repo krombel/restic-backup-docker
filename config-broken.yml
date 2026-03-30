@@ -1,21 +1,19 @@
 schemaVersion: '2.0.0'
-commandTests:  
-  - name: "restic package installation"
-    setup: [["/entry.sh"]]
+commandTests:
+  - name: "restic installation"
     command: "which"
     args: ["restic"]
-    expectedOutput: ["/bin/restic"]
+    expectedOutput: ["/usr/bin/restic"]
 fileExistenceTests:
-- name: 'log directory exists'
-  path: '/var/log'
+- name: 'config log directory exists'
+  path: '/config/logs'
   shouldExist: true
 - name: 'cron log file exists'
-  path: '/var/log/cron.log'
+  path: '/config/logs/cron.log'
   shouldExist: true
 - name: 'backup script exists'
   path: '/bin/backup'
   shouldExist: true
 metadataTest:
-  volumes: ["/data"]
-  entrypoint: ["/entry.sh"]
-  cmd: ["tail","-fn0", "/var/log/cron.log"]
+  volumes: ["/data", "/config"]
+  entrypoint: ["/init"]

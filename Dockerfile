@@ -1,27 +1,37 @@
-FROM --platform=$TARGETPLATFORM docker.io/alpine:latest as rclone
-ARG TARGETPLATFORM
+# syntax=docker/dockerfile:1
 
-RUN apk add wget
+# renovate: datasource=github-releases depName=rclone/rclone extractVersion=v(?<version>.*)$
+ARG RCLONE_VERSION=1.73.2
+# renovate: datasource=github-releases depName=restic/restic extractVersion=v(?<version>.*)$
+ARG RESTIC_VERSION=0.18.1
 
-# Get rclone executable
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-        wget https://downloads.rclone.org/rclone-current-linux-amd64.zip && unzip rclone-current-linux-amd64.zip && mv rclone-*-linux-amd64/rclone /bin/rclone && chmod +x /bin/rclone; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        wget https://downloads.rclone.org/rclone-current-linux-arm64.zip && unzip rclone-current-linux-arm64.zip && mv rclone-*-linux-arm64/rclone /bin/rclone && chmod +x /bin/rclone; \
-    elif [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
-        wget https://downloads.rclone.org/rclone-current-linux-arm-v7.zip && unzip rclone-current-linux-arm-v7.zip && mv rclone-*-linux-arm-v7/rclone /bin/rclone && chmod +x /bin/rclone; \
-    fi
+FROM --platform=$TARGETPLATFORM docker.io/rclone/rclone:${RCLONE_VERSION} AS rclone
 
+FROM --platform=$TARGETPLATFORM docker.io/restic/restic:${RESTIC_VERSION} AS restic
 
-FROM docker.io/restic/restic:0.18.1
+FROM ghcr.io/linuxserver/baseimage-alpine:3.23
 
-RUN apk add --update --no-cache curl mailx shadow
-
-COPY --from=rclone /bin/rclone /bin/rclone
+ARG BUILD_DATE
+ARG VERSION
+LABEL build_version="Restic backup version:- ${VERSION} Build-date:- ${BUILD_DATE}"
+LABEL maintainer="restic-backup-docker"
 
 RUN \
-    mkdir -p /mnt/restic /var/spool/cron/crontabs /var/log; \
-    touch /var/log/cron.log;
+    echo "**** install runtime packages ****" && \
+    apk add --no-cache \
+        curl \
+        mailx \
+        nfs-utils \
+        util-linux && \
+    echo "**** cleanup ****" && \
+    rm -rf /tmp/*
+
+COPY --from=rclone /usr/local/bin/rclone /usr/bin/rclone
+COPY --from=restic /usr/bin/restic /usr/bin/restic
+
+RUN \
+    mkdir -p /mnt/restic /config/logs && \
+    touch /config/logs/cron.log
 
 ENV RESTIC_REPOSITORY=/mnt/restic
 ENV RESTIC_PASSWORD=""
@@ -34,6 +44,7 @@ ENV RESTIC_FORGET_ARGS=""
 ENV RESTIC_JOB_ARGS=""
 ENV RESTIC_DATA_SUBSET=""
 ENV MAILX_ARGS=""
+ENV RESTIC_LOG_DIR=/config/logs
 ENV OS_AUTH_URL=""
 ENV OS_PROJECT_ID=""
 ENV OS_PROJECT_NAME=""
@@ -46,23 +57,12 @@ ENV OS_INTERFACE=""
 ENV OS_IDENTITY_API_VERSION=3
 ENV BACKUP_SOURCES=""
 
-# openshift fix
-RUN mkdir /.cache && \
-    chgrp -R 0 /.cache && \
-    chmod -R g=u /.cache && \
-    chgrp -R 0 /mnt && \
-    chmod -R g=u /mnt && \
-    chgrp -R 0 /var/spool/cron/crontabs/root && \
-    chmod -R g=u /var/spool/cron/crontabs/root && \
-    chgrp -R 0 /var/log/cron.log && \
-    chmod -R g=u /var/log/cron.log
-
-# /data is the dir where you have to put the data to be backed up
-VOLUME /data
+VOLUME /data /config
 
 COPY backup.sh /bin/backup
 COPY check.sh /bin/check
-COPY entry.sh /entry.sh
+COPY root/ /
 
-ENTRYPOINT ["/entry.sh"]
-CMD ["tail","-fn0","/var/log/cron.log"]
+RUN \
+    chmod +x /etc/s6-overlay/s6-rc.d/init-restic-config/run && \
+    chmod +x /bin/backup /bin/check

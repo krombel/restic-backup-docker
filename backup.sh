@@ -1,8 +1,9 @@
-#!/bin/sh
+#!/bin/bash
 
-lastLogfile="/var/log/backup-last.log"
-lastMailLogfile="/var/log/mail-last.log"
-lastMicrosoftTeamsLogfile="/var/log/microsoft-teams-last.log"
+: "${RESTIC_LOG_DIR:=/config/logs}"
+lastLogfile="${RESTIC_LOG_DIR}/backup-last.log"
+lastMailLogfile="${RESTIC_LOG_DIR}/mail-last.log"
+lastMicrosoftTeamsLogfile="${RESTIC_LOG_DIR}/microsoft-teams-last.log"
 
 if [ -n "$BACKUP_SOURCES" ]; then
     backupSources="$BACKUP_SOURCES"
@@ -11,11 +12,11 @@ else
 fi
 
 copyErrorLog() {
-  cp ${lastLogfile} /var/log/backup-error-last.log
+  cp "${lastLogfile}" "${RESTIC_LOG_DIR}/backup-error-last.log"
 }
 
 logLast() {
-  echo "$1" >> ${lastLogfile}
+  echo "$1" >> "${lastLogfile}"
 }
 
 if [ -f "/hooks/pre-backup.sh" ]; then
@@ -25,10 +26,10 @@ else
     echo "Pre-backup script not found ..."
 fi
 
-start=`date +%s`
-rm -f ${lastLogfile} ${lastMailLogfile}
+start=$(date +%s)
+rm -f "${lastLogfile}" "${lastMailLogfile}"
 echo "Starting Backup at $(date +"%Y-%m-%d %H:%M:%S")"
-echo "Starting Backup at $(date)" >> ${lastLogfile}
+echo "Starting Backup at $(date)" >> "${lastLogfile}"
 logLast "BACKUP_CRON: ${BACKUP_CRON}"
 logLast "RESTIC_TAG: ${RESTIC_TAG}"
 logLast "RESTIC_FORGET_ARGS: ${RESTIC_FORGET_ARGS}"
@@ -37,7 +38,7 @@ logLast "RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}"
 logLast "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}"
 
 # Do not save full backup log to logfile but to backup-last.log
-restic backup ${backupSources} ${RESTIC_JOB_ARGS} --tag=${RESTIC_TAG?"Missing environment variable RESTIC_TAG"} >> ${lastLogfile} 2>&1
+restic backup ${backupSources} ${RESTIC_JOB_ARGS} --tag=${RESTIC_TAG?"Missing environment variable RESTIC_TAG"} >> "${lastLogfile}" 2>&1
 backupRC=$?
 logLast "Finished backup at $(date)"
 if [[ $backupRC == 0 ]]; then
@@ -52,7 +53,7 @@ forgetSuccess=false
 
 if [[ $backupRC == 0 ]] && [ -n "${RESTIC_FORGET_ARGS}" ]; then
     echo "Forget about old snapshots based on RESTIC_FORGET_ARGS = ${RESTIC_FORGET_ARGS}"
-    restic forget ${RESTIC_FORGET_ARGS} >> ${lastLogfile} 2>&1
+    restic forget ${RESTIC_FORGET_ARGS} >> "${lastLogfile}" 2>&1
     rc=$?
     logLast "Finished forget at $(date)"
     if [[ $rc == 0 ]]; then
@@ -71,7 +72,7 @@ wasPruneRC=$?
 
 if [ "$forgetSuccess" = true ] && [ $wasPruneRC -eq 0 ]; then
     echo "Checking repository after forget / prune"
-    restic check >> ${lastLogfile} 2>&1
+    restic check >> "${lastLogfile}" 2>&1
     rc=$?
     logLast "Finished check at $(date)"
     if [ $rc = 0 ]; then
@@ -83,12 +84,12 @@ if [ "$forgetSuccess" = true ] && [ $wasPruneRC -eq 0 ]; then
     fi
 fi
 
-end=`date +%s`
+end=$(date +%s)
 echo "Finished Backup at $(date +"%Y-%m-%d %H:%M:%S") after $((end-start)) seconds"
 
 if [ -n "${TEAMS_WEBHOOK_URL}" ]; then
     teamsTitle="Restic Last Backup Log"
-    teamsMessage=$( cat ${lastLogfile} | sed 's/"/\"/g' | sed "s/'/\'/g" | sed ':a;N;$!ba;s/\n/\n\n/g' )
+    teamsMessage=$( cat "${lastLogfile}" | sed 's/"/\"/g' | sed "s/'/\'/g" | sed ':a;N;$!ba;s/\n/\n\n/g' )
     teamsReqBody="{\"title\": \"${teamsTitle}\", \"text\": \"${teamsMessage}\" }"
     sh -c "curl -H 'Content-Type: application/json' -d '${teamsReqBody}' '${TEAMS_WEBHOOK_URL}' > ${lastMicrosoftTeamsLogfile} 2>&1"
     if [ $? == 0 ]; then

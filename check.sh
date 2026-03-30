@@ -1,15 +1,16 @@
-#!/bin/sh
+#!/bin/bash
 
-lastLogfile="/var/log/check-last.log"
-lastMailLogfile="/var/log/check-mail-last.log"
-lastMicrosoftTeamsLogfile="/var/log/check-microsoft-teams-last.log"
+: "${RESTIC_LOG_DIR:=/config/logs}"
+lastLogfile="${RESTIC_LOG_DIR}/check-last.log"
+lastMailLogfile="${RESTIC_LOG_DIR}/check-mail-last.log"
+lastMicrosoftTeamsLogfile="${RESTIC_LOG_DIR}/check-microsoft-teams-last.log"
 
 copyErrorLog() {
-  cp ${lastLogfile} /var/log/check-error-last.log
+  cp "${lastLogfile}" "${RESTIC_LOG_DIR}/check-error-last.log"
 }
 
 logLast() {
-  echo "$1" >> ${lastLogfile}
+  echo "$1" >> "${lastLogfile}"
 }
 
 if [ -f "/hooks/pre-check.sh" ]; then
@@ -19,10 +20,10 @@ else
     echo "Pre-check script not found ..."
 fi
 
-start=`date +%s`
-rm -f ${lastLogfile} ${lastMailLogfile}
+start=$(date +%s)
+rm -f "${lastLogfile}" "${lastMailLogfile}"
 echo "Starting Check at $(date +"%Y-%m-%d %H:%M:%S")"
-echo "Starting Check at $(date)" >> ${lastLogfile}
+echo "Starting Check at $(date)" >> "${lastLogfile}"
 logLast "CHECK_CRON: ${CHECK_CRON}"
 logLast "RESTIC_DATA_SUBSET: ${RESTIC_DATA_SUBSET}"
 logLast "RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}"
@@ -30,9 +31,9 @@ logLast "AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}"
 
 # Do not save full check log to logfile but to check-last.log
 if [ -n "${RESTIC_DATA_SUBSET}" ]; then
-    restic check --read-data-subset=${RESTIC_DATA_SUBSET} >> ${lastLogfile} 2>&1
+    restic check --read-data-subset=${RESTIC_DATA_SUBSET} >> "${lastLogfile}" 2>&1
 else
-    restic check >> ${lastLogfile} 2>&1
+    restic check >> "${lastLogfile}" 2>&1
 fi
 checkRC=$?
 logLast "Finished check at $(date)"
@@ -44,12 +45,12 @@ else
     copyErrorLog
 fi
 
-end=`date +%s`
+end=$(date +%s)
 echo "Finished Check at $(date +"%Y-%m-%d %H:%M:%S") after $((end-start)) seconds"
 
 if [ -n "${TEAMS_WEBHOOK_URL}" ]; then
     teamsTitle="Restic Last Check Log"
-    teamsMessage=$( cat ${lastLogfile} | sed 's/"/\"/g' | sed "s/'/\'/g" | sed ':a;N;$!ba;s/\n/\n\n/g' )
+    teamsMessage=$( cat "${lastLogfile}" | sed 's/"/\"/g' | sed "s/'/\'/g" | sed ':a;N;$!ba;s/\n/\n\n/g' )
     teamsReqBody="{\"title\": \"${teamsTitle}\", \"text\": \"${teamsMessage}\" }"
     sh -c "curl -H 'Content-Type: application/json' -d '${teamsReqBody}' '${TEAMS_WEBHOOK_URL}' > ${lastMicrosoftTeamsLogfile} 2>&1"
     if [ $? == 0 ]; then

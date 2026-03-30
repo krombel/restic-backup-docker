@@ -1,0 +1,46 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+LOG_DIR="${RESTIC_LOG_DIR:-/config/logs}"
+mkdir -p "${LOG_DIR}" /config/crontabs
+touch "${LOG_DIR}/cron.log"
+
+echo "**** restic-backup init ****"
+
+if [[ -n "${NFS_TARGET:-}" ]]; then
+    echo "Mounting NFS based on NFS_TARGET: ${NFS_TARGET}"
+    mount -o nolock -v "${NFS_TARGET}" /mnt/restic
+fi
+
+restic snapshots ${RESTIC_INIT_ARGS:-} &>/dev/null
+status=$?
+echo "Check Repo status ${status}"
+
+if [[ "${status}" != 0 ]]; then
+    echo "Restic repository '${RESTIC_REPOSITORY}' does not exist. Running restic init."
+    restic init ${RESTIC_INIT_ARGS:-}
+    init_status=$?
+    echo "Repo init status ${init_status}"
+    if [[ "${init_status}" != 0 ]]; then
+        echo "Failed to init the repository: '${RESTIC_REPOSITORY}'"
+        exit 1
+    fi
+fi
+
+CRONTAB_FILE="/config/crontabs/abc"
+
+{
+    echo "${BACKUP_CRON} /usr/bin/flock -n /config/backup.lock /bin/backup >> ${LOG_DIR}/cron.log 2>&1"
+    if [[ -n "${CHECK_CRON:-}" ]]; then
+        echo "${CHECK_CRON} /usr/bin/flock -n /config/backup.lock /bin/check >> ${LOG_DIR}/cron.log 2>&1"
+    fi
+} > "${CRONTAB_FILE}"
+
+lsiown abc:abc "${CRONTAB_FILE}"
+crontab -u abc "${CRONTAB_FILE}"
+
+lsiown -R abc:abc \
+    /mnt/restic \
+    /config
+
+echo "**** restic-backup init done ****"
